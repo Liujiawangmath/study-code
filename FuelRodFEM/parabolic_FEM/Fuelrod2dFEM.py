@@ -225,6 +225,35 @@ print(isBdNode.shape)
 isBdNode_caldding = mesh.ds.boundary_node_flag()
 print(isBdNode_caldding.shape)
 
+# 初始化共享节点列表和两个拓扑关系字典
+BdNode = []
+BdNode1 = np.zeros(len(node_caldding), dtype=bool)
+BdNode2 = np.zeros(len(node_inner), dtype=bool)
+
+# 遍历第一组节点
+for i, node1 in enumerate(node_caldding):
+    # 遍历第二组节点
+    for j, node2 in enumerate(node_inner):
+        # 如果节点坐标完全相同，则是共享节点
+        if np.array_equal(node1, node2):
+            # 将共享节点坐标添加到BdNode中
+            BdNode.append(node1)
+            # 记录共享节点在第一组节点中的编号索引
+            # 将对应位置的布尔值设置为True
+            BdNode1[i] = True
+            BdNode2[j] = True
+
+# 打印共享节点坐标和两个拓扑关系
+print("共享节点坐标：")
+print(BdNode)
+print("在第一组节点中的位置：")
+print(BdNode1)
+print("在第二组节点中的位置：")
+print(BdNode2)
+
+isBdNode_caldding=mesh_caldding.ds.boundary_node_flag()
+isBdNode_caldding =np.logical_xor(isBdNode_caldding, BdNode1)
+
 import matplotlib.pyplot as plt
 fig = plt.figure()
 axes = fig.gca()
@@ -283,13 +312,13 @@ F_caldding=bform3.assembly()
 
 p=np.zeros_like(F)
 p+=300
-alpha_caldding=4
-alpha_inner=8
+alpha_caldding=4e-3
+alpha_inner=8e-3
 p_caldding = np.zeros_like(F_caldding)
-
+p_inner=np.zeros_like(F_inner)
 
 import os
-output = './result_fuel'
+output = './result_fuelrod'
 filename = 'temp'
 # Check if the directory exists, if not, create it
 if not os.path.exists(output):
@@ -300,59 +329,38 @@ for n in range(nt):
     A_caldding = M_caldding + alpha_caldding*K_caldding*tau
     b_caldding = M_caldding @ p_caldding + tau*F_caldding
     p_caldding=spsolve(A_caldding,b_caldding)
-    
-    
-    
-    
-    
+
     # 全局Dirichlet边界条件
-    p[isBdNode_caldding] = pde.dirichlet(node)
+     # 遍历共享节点
+    for i, shared_node in enumerate(BdNode):
+        # 找到共享节点在第一组节点中的索引
+        index_caldding = np.where((node_caldding == shared_node).all(axis=1))[0][0]
+        # 找到共享节点在第二组节点中的索引
+        index_inner = np.where((node_inner == shared_node).all(axis=1))[0][0]
+        # 将第一组节点上的温度赋值给第二组节点
+        p_inner[index_inner] = p_caldding[index_caldding]
     
+    A_inner = M_inner + alpha_inner*K_inner*tau
+    b_inner = M_inner @ p_inner + tau*F_inner
+    p_inner=spsolve(A_inner,b_inner)
+   
+    p_caldding[BdNode1] = pde.dirichlet(node_caldding)
+
+    # 将 p_caldding 中的值填入 p 中对应的位置
+    for i, l in enumerate(node_caldding):
+        global_index = np.where((node == l).all(axis=1))[0][0]
+        p[global_index] = p_caldding[i]
+
+    # 将 p_inner 中的值填入 p 中对应的位置
+    for i, l in enumerate(node_inner):
+        global_index = np.where((node == l).all(axis=1))[0][0]
+        p[global_index] = p_inner[i]
+
+
     
-    mesh_inner.nodedata['temp'] = p.flatten('F')
+    mesh.nodedata['temp'] = p.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
-    mesh_inner.to_vtk(fname=name)
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-import matplotlib.patches as mpatches
-
-# 获取边界节点和非边界节点的索引
-boundary_nodes = np.where(isBdNode)[0]
-interior_nodes = np.where(~isBdNode)[0]
-
-# 为边界节点和非边界节点分配不同颜色
-colors = ['red' if i in boundary_nodes else 'blue' for i in range(len(node))]
-
-# 绘制网格并着色节点
-fig, ax = plt.subplots(figsize=(8, 6))
-mesh_inner.add_plot(ax)
-mesh_inner.find_cell(ax, showindex=False)
-
-# 在图中添加边界节点和非边界节点，使用不同颜色
-for idx, node_coord in enumerate(node):
-    ax.scatter(node_coord[0], node_coord[1], color=colors[idx], s=20, zorder=5)
-
-# 添加图例说明颜色含义
-boundary_patch = mpatches.Patch(color='red', label='Boundary Nodes')
-interior_patch = mpatches.Patch(color='blue', label='Interior Nodes')
-ax.legend(handles=[boundary_patch, interior_patch])
-
-ax.set_title('Mesh with Boundary and Interior Nodes Highlighted')
-ax.set_xlim(-3e-3,3e-3)
-ax.set_ylim(-3e-3,3e-3)
-plt.show()
+    mesh.to_vtk(fname=name)
 
 print(p)
 print(p.shape)
