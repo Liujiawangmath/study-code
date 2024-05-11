@@ -98,7 +98,7 @@ p+=37
 alpha=1.98e-2
 
 import os
-output = './result2'
+output = './result_2d'
 filename = 'temp'
 # Check if the directory exists, if not, create it
 if not os.path.exists(output):

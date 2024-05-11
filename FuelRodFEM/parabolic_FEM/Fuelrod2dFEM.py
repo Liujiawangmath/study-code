@@ -243,13 +243,7 @@ for i, node1 in enumerate(node_caldding):
             BdNode1[i] = True
             BdNode2[j] = True
 
-# 打印共享节点坐标和两个拓扑关系
-print("共享节点坐标：")
-print(BdNode)
-print("在第一组节点中的位置：")
-print(BdNode1)
-print("在第二组节点中的位置：")
-print(BdNode2)
+
 
 isBdNode_caldding=mesh_caldding.ds.boundary_node_flag()
 isBdNode_caldding =np.logical_xor(isBdNode_caldding, BdNode1)
@@ -332,13 +326,18 @@ for n in range(nt):
 
     # 全局Dirichlet边界条件
      # 遍历共享节点
-    for i, shared_node in enumerate(BdNode):
+    #for i, shared_node in enumerate(BdNode):
         # 找到共享节点在第一组节点中的索引
-        index_caldding = np.where((node_caldding == shared_node).all(axis=1))[0][0]
+        #index_caldding = np.where((node_caldding == shared_node).all(axis=1))[0][0]
         # 找到共享节点在第二组节点中的索引
-        index_inner = np.where((node_inner == shared_node).all(axis=1))[0][0]
+        #index_inner = np.where((node_inner == shared_node).all(axis=1))[0][0]
         # 将第一组节点上的温度赋值给第二组节点
-        p_inner[index_inner] = p_caldding[index_caldding]
+        #p_inner[index_inner] = p_caldding[index_caldding]
+        
+    index_caldding = np.where((node_caldding[:, None] == BdNode).all(axis=2))[1]
+    index_inner = np.where((node_inner[:, None] == BdNode).all(axis=2))[1]
+    p_inner[index_inner] = p_caldding[index_caldding]
+
     
     A_inner = M_inner + alpha_inner*K_inner*tau
     b_inner = M_inner @ p_inner + tau*F_inner
@@ -347,15 +346,23 @@ for n in range(nt):
     p_caldding[BdNode1] = pde.dirichlet(node_caldding)
 
     # 将 p_caldding 中的值填入 p 中对应的位置
-    for i, l in enumerate(node_caldding):
-        global_index = np.where((node == l).all(axis=1))[0][0]
-        p[global_index] = p_caldding[i]
+    #for i, l in enumerate(node_caldding):
+        #global_index = np.where((node == l).all(axis=1))[0][0]
+        #p[global_index] = p_caldding[i]
 
     # 将 p_inner 中的值填入 p 中对应的位置
-    for i, l in enumerate(node_inner):
-        global_index = np.where((node == l).all(axis=1))[0][0]
-        p[global_index] = p_inner[i]
+    #for i, l in enumerate(node_inner):
+        #global_index = np.where((node == l).all(axis=1))[0][0]
+        #p[global_index] = p_inner[i]
+    # 将节点坐标转换成对应的全局索引
+    global_indices_caldding = np.where(np.all(node[:, None] == node_caldding, axis=2))[0]
+    global_indices_inner = np.where(np.all(node[:, None] == node_inner, axis=2))[0]
 
+# 将 p_caldding 中的值填入 p 中对应的位置
+    p[global_indices_caldding] = p_caldding
+
+# 将 p_inner 中的值填入 p 中对应的位置
+    p[global_indices_inner] = p_inner
 
     
     mesh.nodedata['temp'] = p.flatten('F')

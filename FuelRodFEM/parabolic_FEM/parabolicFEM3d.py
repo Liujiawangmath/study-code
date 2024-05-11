@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy.sparse.linalg import spsolve
-from fealpy.mesh import TriangleMesh
+from fealpy.mesh import TetrahedronMesh
 from fealpy.functionspace import LagrangeFESpace
 from fealpy.fem import DiffusionIntegrator
 from fealpy.fem import BilinearForm
@@ -47,18 +47,12 @@ hx = (domain[1] - domain[0])/nx
 hy = (domain[3] - domain[2])/ny
 hz = (domain[5]-domain[4])/nz
 
-mesh = TriangleMesh()
+mesh = TetrahedronMesh.from_box([0, 10, 0, 10, 0, 10],nx,ny,nz)
 node = mesh.node
 isBdNode = mesh.ds.boundary_node_flag()
 print(isBdNode)
 
-import matplotlib.pyplot as plt
-fig = plt.figure()
-axes = fig.gca()
-mesh.add_plot(axes)
-mesh.find_cell(axes, showindex=True, color='k', marker='s', markersize=2, fontsize=8, fontcolor='k')
-mesh.find_node(axes, showindex=True, color='r', marker='o', markersize=2, fontsize=8, fontcolor='r')
-#plt.show()
+
 
 # 时间离散
 duration = pde.duration()
