@@ -13,6 +13,11 @@ from fealpy.fem import ScalarSourceIntegrator
 from fealpy.mesh import TetrahedronMesh
 import matplotlib.pyplot as plt
 import numpy as np
+from fealpy.mesh import TetrahedronMesh
+import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.pyplot as plt
+import numpy as np
 def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
     """
     Generate a tetrahedron mesh for a fuel-rod region by gmsh
@@ -119,12 +124,12 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
     # 包壳截面
     factory.addPlaneSurface([17, 34],36)
 
-
     factory.synchronize()
 
     N = math.ceil((2*l)/p)
-    #angle = ((2*l)/p* math.pi) / N
-    angle = 0
+
+    angle = ((2*l)/p* math.pi) / N
+    #angle = 0
     #nsection = math.ceil(l/(N* np.sqrt(6)/3 * h))
     nsection = math.ceil(l/(N* 0.4 * h))
     #nsection = math.ceil(l/(N* 2/3 * h))
@@ -143,10 +148,11 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
     factory.synchronize()
     # 生成网格
     gmsh.model.mesh.generate(3)
-    gmsh.fltk.run()
+    #gmsh.fltk.run()
     # 获取节点信息
     node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
     node = np.array(node_coords, dtype=np.float64).reshape(-1, 3)
+    NN = node.shape[0]
 
     #节点的编号映射
     nodetags_map = dict({j:i for i,j in enumerate(node_tags)})
@@ -159,50 +165,41 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
 
     print(f"Number of nodes: {node.shape[0]}")
     print(f"Number of cells: {cell.shape[0]}")
-    
-    node = gmsh.model.mesh.get_nodes()[1].reshape(-1,3)
-    NN = node.shape[0]
 
-    nid2tag = gmsh.model.mesh.get_nodes()[0]
-    tag2nid = np.zeros(NN*2 , dtype = np.int_)
-    tag2nid[nid2tag] = np.arange(NN)
-    #print(tag2nid)
-    dimtags = gmsh.model.getEntities(3)
-    #print(dimtags)
-    ninner = []
-    ncald = []
-    cinner = []
-    ccald = []
-    for dim,tag in dimtags:
-        idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
-        #print(idx)
-        idx = tag2nid[idx].reshape(-1,4)
-
-        nidx = np.unique(idx.flatten())
-        node_of_3dtag = node[nidx]
-
-        if tag%2 == 1:
-            ninner.append(node_of_3dtag)
-            cinner.append(idx)
-        else:
-            ncald.append(node_of_3dtag)
-            ccald.append(idx)
-
-    ninner = np.array(ninner,dtype=object).flatten().reshape(-1,3)
-    ncald = np.array(ncald,dtype=object).flatten().reshape(-1,3)
-    cinner = np.array(cinner,dtype=object).flatten().reshape(-1,4)
-    ccald = np.array(ccald,dtype=object).flatten().reshape(-1,4)
-
-    print(len(ninner)+len(ncald))
-    print(len(cinner)+len(ccald))
-    gmsh.finalize()
-    if square == "inner":
-        return TetrahedronMesh(ninner,cinner)
-    elif square == "caldding":
-        return TetrahedronMesh(ncald,ccald)
-    elif square == "all":
+    if square == "all":
+        gmsh.finalize()
         return TetrahedronMesh(node,cell)
+    
+    elif square == "bdnidx" or square == "cnidx":
+        # 二维面片
+        dimtags2 = gmsh.model.getEntities(2)
+        # 删去前后和中间插入的面片，剩下两边包裹的
+        del dimtags2[0],dimtags2[0],dimtags2[16:len(dimtags2):17]
 
+        if square == "cnidx":
+            # 内边界面片集合
+            in_dimtags2 = sum([dimtags2[i:i+16] for i in range(0,len(dimtags2),32)],[])
+            # 存储共享边界点
+            cnidx = []
+            for dim,tag in in_dimtags2:
+                idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
+                cnidx.extend(idx)
+            cnidx = np.unique(cnidx)
+            gmsh.finalize()
+            return cnidx
+        
+        elif square == "bdnidx":
+            # 外边界面片集合
+            out_dimtags2 = sum([dimtags2[i:i+16] for i in range(16,len(dimtags2),32)],[])
+            # 存储外边界点
+            bdnidx = []
+            for dim,tag in out_dimtags2:
+                idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
+                bdnidx.extend(idx)
+            bdnidx = np.unique(bdnidx)
+            gmsh.finalize()
+            return bdnidx
+    
 
 
 mm = 1e-03
@@ -217,11 +214,16 @@ L = 0.575 * mm
 #内部单元大小
 h = 0.5 * mm
 #棒长
-l = 1 * mm
+l = 50 * mm
 #螺距
 p = 10 * mm
 
-mesh = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='all')
+cnidx = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='cnidx')
+print(len(cnidx))
+#bdnidx = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='bdnidx')
+#print(len(bdnidx))
+
+
 """"
 mm = 1e-03
 #包壳厚度
@@ -267,6 +269,7 @@ class ParabolicData:
 mesh=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='all')
 mesh_inner = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='inner')
 mesh_caldding=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='caldding')
+mesh_cnidx=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='cnidx')
 
 pde=ParabolicData()
 source=pde.source()
@@ -277,13 +280,15 @@ node_caldding=mesh_caldding.node
 print(node_caldding.shape)
 node_inner=mesh_inner.node
 print(node_inner.shape)
-unique_nodes_inner = np.unique(node_inner, axis=0)
-print("unique",unique_nodes_inner.shape)
+#unique_nodes_inner = np.unique(node_inner, axis=0)
+#print("unique",unique_nodes_inner.shape)
+node_cnidx = mesh_cnidx.node
 
 isBdNode_inner = mesh_inner.ds.boundary_node_flag()
 print(isBdNode_inner.shape)
 isBdNode_all = mesh.ds.boundary_node_flag()
 print(isBdNode_all.shape)
+isBdNode_caldding=mesh_caldding.boundary_node_flag()
 
 '''
 # 初始化共享节点列表和两个拓扑关系字典
@@ -392,7 +397,7 @@ for n in range(nt):
     p_inner=spsolve(A_inner,b_inner)
    
      
-    p_caldding[isBdNode_all] = pde.dirichlet(node_caldding)
+    p_caldding[isBdNode_caldding] = pde.dirichlet(node_caldding)
     
     #global_indices_caldding = np.where(np.all(node[:, None] == node_caldding, axis=2))[0]
     #global_indices_inner = np.where(np.all(node[:, None] == node_inner, axis=2))[0] ####这一步目前有问题。
