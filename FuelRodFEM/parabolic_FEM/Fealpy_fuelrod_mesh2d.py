@@ -1,17 +1,5 @@
 import matplotlib.pyplot as plt
 from fealpy.mesh import TriangleMesh
-import numpy as np
-import matplotlib.pyplot as plt
-import os
-from scipy.sparse.linalg import spsolve
-from fealpy.mesh import TriangleMesh
-from fealpy.functionspace import LagrangeFESpace
-from fealpy.fem import DiffusionIntegrator
-from fealpy.fem import BilinearForm
-from fealpy.fem import ScalarMassIntegrator
-from fealpy.fem import LinearForm
-from fealpy.fem import ScalarSourceIntegrator
-from fealpy.fem.dirichlet_bc import DirichletBC
 def from_fuel_rod_gmsh(R1,R2,L,w,h,meshtype='normal'):
     """
     Generate a trangle mesh for a fuel-rod region by gmsh
@@ -184,6 +172,7 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,meshtype='normal'):
     gmsh.finalize()
     return TriangleMesh(node,cell),cnidx,bdnidx,innidx,canidx
 
+
 mm = 1e-03
 #包壳厚度
 w = 0.15 * mm
@@ -211,94 +200,3 @@ def plot_delaunay(mesh):
         plt.show()
 plot_delaunay(mesh)
 """
-class ParabolicData:
-    
-    
-    def domain(self):
-        """
-        @brief 空间区间
-        """
-        return [0, 10, 0, 10]
-
-    def duration(self):
-        """
-        @brief 时间区间
-        """
-        return [0, 10]
-    
-    def source(self):
-        
-        return 0
-    
-    def dirichlet(self, p):
-        """
-        @brief 返回 Dirichlet 边界上的给定点的位移
-        @param[in] p 一个表示空间点坐标的数组
-        @return 返回位移值，这里返回常数向量 [0.0, 0.0]
-        """
-        return 500
-
-mm = 1e-03
-#包壳厚度
-w = 0.15 * mm
-#半圆半径
-R1 = 0.5 * mm
-#四分之一圆半径
-R2 = 1.0 * mm
-#连接处直线段
-L = 0.575 * mm
-#内部单元大小
-h = 0.0003
-
-pde=ParabolicData()
-source=pde.source()
-node = mesh.node
-isBdNode= mesh.ds.boundary_node_flag()
-print(isBdNode.shape)
-# 时间离散
-duration = pde.duration()
-nt = 640
-tau = (duration[1] - duration[0])/nt 
-
-####全局矩阵组装####
-space=LagrangeFESpace(mesh, p=1)
-bform3=LinearForm(space)
-bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
-F=bform3.assembly()
-
-#组装刚度矩阵
-bform = BilinearForm(space)
-bform.add_domain_integrator(DiffusionIntegrator(q=3))
-K = bform.assembly()
-#组装质量矩阵
-bform2=BilinearForm(space)
-bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
-M=bform2.assembly()
-
-p=np.zeros_like(F)
-p+=300
-alpha_caldding=4e-3
-alpha_inner=8e-3
-print(p.shape)
-
-import os
-output = './result_fuelrodnew2d'
-filename = 'temp'
-# Check if the directory exists, if not, create it
-if not os.path.exists(output):
-    os.makedirs(output)
-
-for n in range(nt):
-    t = duration[0] + n*tau
-    A = M + alpha_caldding*K*tau
-    b = M @ p + tau*F
-    p[isBdNode] = pde.dirichlet(node[isBdNode])
-    p=spsolve(A,b)
-    # Dirichlet边界条件
-    p[isBdNode] = pde.dirichlet(node)
-    mesh.nodedata['temp'] = p.flatten('F')
-    name = os.path.join(output, f'{filename}_{n:010}.vtu')
-    mesh.to_vtk(fname=name)
-
-print(p)
-print(p.shape)

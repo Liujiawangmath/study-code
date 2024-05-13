@@ -211,6 +211,7 @@ def plot_delaunay(mesh):
         plt.show()
 plot_delaunay(mesh)
 """
+
 class ParabolicData:
     
     
@@ -238,67 +239,79 @@ class ParabolicData:
         """
         return 500
 
-mm = 1e-03
-#包壳厚度
-w = 0.15 * mm
-#半圆半径
-R1 = 0.5 * mm
-#四分之一圆半径
-R2 = 1.0 * mm
-#连接处直线段
-L = 0.575 * mm
-#内部单元大小
-h = 0.0003
 
 pde=ParabolicData()
 source=pde.source()
+
+
 node = mesh.node
-isBdNode= mesh.ds.boundary_node_flag()
-print(isBdNode.shape)
+isBdNode = mesh.ds.boundary_node_flag()
+
+
 # 时间离散
 duration = pde.duration()
 nt = 640
 tau = (duration[1] - duration[0])/nt 
 
-####全局矩阵组装####
-space=LagrangeFESpace(mesh, p=1)
-bform3=LinearForm(space)
-bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
-F=bform3.assembly()
+
+# 基函数
+space = LagrangeFESpace(mesh, p=1)
+qf = mesh.integrator(3) 
+bcs, ws = qf.get_quadrature_points_and_weights()
+phi=space.basis(bcs)
+
+
+# 维数
+GD=space.geo_dimension()
+
 
 #组装刚度矩阵
 bform = BilinearForm(space)
 bform.add_domain_integrator(DiffusionIntegrator(q=3))
 K = bform.assembly()
+
+
 #组装质量矩阵
 bform2=BilinearForm(space)
 bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
 M=bform2.assembly()
 
+
+bform3=LinearForm(space)
+bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
+F=bform3.assembly()
+
+
 p=np.zeros_like(F)
 p+=300
-alpha_caldding=4e-3
-alpha_inner=8e-3
-print(p.shape)
+alpha=4
 
-import os
-output = './result_fuelrodnew2d'
-filename = 'temp'
-# Check if the directory exists, if not, create it
-if not os.path.exists(output):
-    os.makedirs(output)
+    
+import matplotlib.patches as mpatches
 
-for n in range(nt):
-    t = duration[0] + n*tau
-    A = M + alpha_caldding*K*tau
-    b = M @ p + tau*F
-    p[isBdNode] = pde.dirichlet(node[isBdNode])
-    p=spsolve(A,b)
-    # Dirichlet边界条件
-    p[isBdNode] = pde.dirichlet(node)
-    mesh.nodedata['temp'] = p.flatten('F')
-    name = os.path.join(output, f'{filename}_{n:010}.vtu')
-    mesh.to_vtk(fname=name)
+# 获取边界节点和非边界节点的索引
+boundary_nodes = np.where(isBdNode)[0]
+interior_nodes = np.where(~isBdNode)[0]
 
-print(p)
-print(p.shape)
+# 为边界节点和非边界节点分配不同颜色
+colors = ['red' if i in boundary_nodes else 'blue' for i in range(len(node))]
+
+# 绘制网格并着色节点
+fig, ax = plt.subplots(figsize=(8, 6))
+mesh.add_plot(ax)
+mesh.find_cell(ax, showindex=False)
+
+# 在图中添加边界节点和非边界节点，使用不同颜色
+for idx, node_coord in enumerate(node):
+    ax.scatter(node_coord[0], node_coord[1], color=colors[idx], s=20, zorder=5)
+
+# 添加图例说明颜色含义
+boundary_patch = mpatches.Patch(color='red', label='Boundary Nodes')
+interior_patch = mpatches.Patch(color='blue', label='Interior Nodes')
+ax.legend(handles=[boundary_patch, interior_patch])
+
+ax.set_title('Mesh with Boundary and Interior Nodes Highlighted')
+ax.set_xlim(-3e-3,3e-3)
+ax.set_ylim(-3e-3,3e-3)
+plt.show()
+

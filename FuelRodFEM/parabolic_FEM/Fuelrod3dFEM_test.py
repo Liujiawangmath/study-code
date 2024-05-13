@@ -13,12 +13,10 @@ from fealpy.fem import ScalarSourceIntegrator
 from fealpy.mesh import TetrahedronMesh
 import matplotlib.pyplot as plt
 import numpy as np
-from fealpy.mesh import TetrahedronMesh
-import matplotlib.pyplot as plt
-import numpy as np
-import matplotlib.pyplot as plt
-import numpy as np
-def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
+from fealpy.fem.dirichlet_bc import DirichletBC
+from scipy.sparse.linalg import gmres
+
+def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented'):
     """
     Generate a tetrahedron mesh for a fuel-rod region by gmsh
 
@@ -152,7 +150,6 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
     # 获取节点信息
     node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
     node = np.array(node_coords, dtype=np.float64).reshape(-1, 3)
-    NN = node.shape[0]
 
     #节点的编号映射
     nodetags_map = dict({j:i for i,j in enumerate(node_tags)})
@@ -166,43 +163,57 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square = 'all'):
     print(f"Number of nodes: {node.shape[0]}")
     print(f"Number of cells: {cell.shape[0]}")
 
-    if square == "all":
-        gmsh.finalize()
-        return TetrahedronMesh(node,cell)
-    
-    elif square == "bdnidx" or square == "cnidx":
-        # 二维面片
-        dimtags2 = gmsh.model.getEntities(2)
-        # 删去前后和中间插入的面片，剩下两边包裹的
-        del dimtags2[0],dimtags2[0],dimtags2[16:len(dimtags2):17]
+    NN = node.shape[0]
+    tag2nidx = np.zeros(2*NN,dtype=np.int_)
+    tag2nidx[node_tags] = np.arange(NN)
 
-        if square == "cnidx":
-            # 内边界面片集合
-            in_dimtags2 = sum([dimtags2[i:i+16] for i in range(0,len(dimtags2),32)],[])
-            # 存储共享边界点
-            cnidx = []
-            for dim,tag in in_dimtags2:
-                idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
-                cnidx.extend(idx)
-            cnidx = np.unique(cnidx)
-            gmsh.finalize()
-            return cnidx
-        
-        elif square == "bdnidx":
-            # 外边界面片集合
-            out_dimtags2 = sum([dimtags2[i:i+16] for i in range(16,len(dimtags2),32)],[])
-            # 存储外边界点
-            bdnidx = []
-            for dim,tag in out_dimtags2:
-                idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
-                bdnidx.extend(idx)
-            bdnidx = np.unique(bdnidx)
-            gmsh.finalize()
-            return bdnidx
-    
+    # 二维面片
+    dimtags2 = gmsh.model.getEntities(2)
+    # 删去前后和中间插入的面片，剩下两边包裹的
+    del dimtags2[0],dimtags2[0],dimtags2[16:len(dimtags2):17]
 
 
-mm = 1e-03
+    # 内边界面片集合
+    in_dimtags2 = sum([dimtags2[i:i+16] for i in range(0,len(dimtags2),32)],[])
+    # 存储共享边界点
+    cntags = []
+    for dim,tag in in_dimtags2:
+        idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
+        cntags.extend(idx)
+    cntags = np.unique(cntags)
+    cnidx = tag2nidx[cntags]
+
+    # 外边界面片集合
+    out_dimtags2 = sum([dimtags2[i:i+16] for i in range(16,len(dimtags2),32)],[])
+    # 存储外边界点
+    bdntags = []
+    for dim,tag in out_dimtags2:
+        idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]
+        bdntags.extend(idx)
+    bdntags = np.unique(bdntags)
+    bdnidx = tag2nidx[bdntags]
+
+    dimtags3 = gmsh.model.getEntities(3)
+
+    # 存储燃料节点编号
+    innidx = []
+    # 存储包壳节点编号
+    canidx = []
+    for dim,tag in dimtags3:
+        idx = gmsh.model.mesh.get_elements(dim,tag)[2][0]     
+        idx = tag2nidx[idx]
+
+        if tag%2 == 1:
+            innidx.extend(idx)
+        else:
+            canidx.extend(idx)
+    innidx = np.unique(innidx)
+    canidx = np.unique(canidx)
+
+    gmsh.finalize()
+    return TetrahedronMesh(node,cell),cnidx,bdnidx,innidx,canidx
+
+mm = 1
 #包壳厚度
 w = 0.15 * mm
 #半圆半径
@@ -212,16 +223,11 @@ R2 = 1.0 * mm
 #连接处直线段
 L = 0.575 * mm
 #内部单元大小
-h = 0.5 * mm
+h = 0.3 * mm
 #棒长
-l = 50 * mm
+l = 20 * mm
 #螺距
-p = 10 * mm
-
-cnidx = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='cnidx')
-print(len(cnidx))
-#bdnidx = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='bdnidx')
-#print(len(bdnidx))
+p = 40 * mm
 
 
 """"
@@ -237,9 +243,9 @@ L = 0.575 * mm
 #内部单元大小
 h = 0.8 * mm
 #棒长
-l = 10 * mm
+l = 4 * mm
 #螺距
-p = 5 * mm
+p = 10 * mm
 
 """
 class ParabolicData:
@@ -250,7 +256,7 @@ class ParabolicData:
         """
         @brief 时间区间
         """
-        return [0, 100]
+        return [0, 10]
     
     def source(self):
         
@@ -262,173 +268,136 @@ class ParabolicData:
         @param[in] p 一个表示空间点坐标的数组
         @return 返回位移值，这里返回常数向量 [0.0, 0.0,0.0]
         """
-        return 500
+        return  500
 
 
 
-mesh=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='all')
-mesh_inner = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='inner')
-mesh_caldding=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='caldding')
-mesh_cnidx=from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented',square='cnidx')
-
+mesh,cnidx,bdnidx,innidx,canidx = from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented')
+print(len(cnidx))
+print(len(bdnidx))
+print(len(innidx))
+print(len(canidx))
 pde=ParabolicData()
 source=pde.source()
-
-
 node = mesh.node
-node_caldding=mesh_caldding.node
-print(node_caldding.shape)
-node_inner=mesh_inner.node
-print(node_inner.shape)
-#unique_nodes_inner = np.unique(node_inner, axis=0)
-#print("unique",unique_nodes_inner.shape)
-node_cnidx = mesh_cnidx.node
+NC=mesh.number_of_cells
+NN=mesh.number_of_nodes
+print("单元个数：",NC)
+print("节点个数",NN)
+print("反转单元个数:",np.sum(mesh.entity_measure("cell")<=0))
 
-isBdNode_inner = mesh_inner.ds.boundary_node_flag()
-print(isBdNode_inner.shape)
-isBdNode_all = mesh.ds.boundary_node_flag()
-print(isBdNode_all.shape)
-isBdNode_caldding=mesh_caldding.boundary_node_flag()
+def show_quality(self, axes, qtype=None, quality=None):
+    #@brief 显示网格质量分布的分布直方图
+    minq = np.min(1/quality)
+    maxq = np.max(1/quality)
+    meanq = np.mean(1/quality)
+    hist, bins = np.histogram(1/quality, bins=50, range=(0, 1))
+    center = (bins[:-1] + bins[1:]) / 2
+    axes.bar(center, hist, align='center', width=0.02)
+    axes.set_xlim(0, 1)
+    axes.annotate('Min quality: {:.6}'.format(minq), xy=(0, 0), xytext=(0.1, 0.5),
+                    textcoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top')
+    axes.annotate('Max quality: {:.6}'.format(maxq), xy=(0, 0), xytext=(0.1, 0.45),
+                    textcoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top')
+    axes.annotate('Average quality: {:.6}'.format(meanq), xy=(0, 0), xytext=(0.1, 0.40),
+                    textcoords='axes fraction',
+                    horizontalalignment='left', verticalalignment='top')
+    return minq, maxq, meanq
+fig,axes1= plt.subplots()
+quality = mesh.cell_quality()
+show_quality(mesh,axes1,quality=quality)
+plt.show()
 
-'''
-# 初始化共享节点列表和两个拓扑关系字典
-BdNode = []
-BdNode1 = np.zeros(len(node_caldding), dtype=bool)
-BdNode2 = np.zeros(len(node_inner), dtype=bool)
-
-# 遍历第一组节点
-for i, node1 in enumerate(node_caldding):
-    # 遍历第二组节点
-    for j, node2 in enumerate(node_inner):
-        # 如果节点坐标完全相同，则是共享节点
-        if np.array_equal(node1, node2):
-            # 将共享节点坐标添加到BdNode中
-            BdNode.append(node1)
-            # 记录共享节点在第一组节点中的编号索引
-            # 将对应位置的布尔值设置为True
-            BdNode1[i] = True
-            BdNode2[j] = True
-
-
-isBdNode_caldding=mesh_caldding.ds.boundary_node_flag()
-print(isBdNode_caldding.shape)
-isBdNode_caldding =np.logical_xor(isBdNode_caldding, BdNode1)
-print("qiuhe",np.sum(BdNode))
-'''
-
+isBdNode = mesh.ds.boundary_node_flag()
+print(isBdNode.shape)
 
 
 # 时间离散
 duration = pde.duration()
-nt = 640
+nt = 64
 tau = (duration[1] - duration[0])/nt 
 
 ####全局矩阵组装####
 space=LagrangeFESpace(mesh, p=1)
-bform3=LinearForm(space)
-bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
-F=bform3.assembly()
+
 
 ####内部的矩阵组装####
 # 基函数
-space_inner = LagrangeFESpace(mesh_inner, p=1)
-GD=space_inner.geo_dimension()
-#组装刚度矩阵
-bform = BilinearForm(space_inner)
-bform.add_domain_integrator(DiffusionIntegrator(q=3))
-K_inner = bform.assembly()
-#组装质量矩阵
-bform2=BilinearForm(space_inner)
-bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
-M_inner=bform2.assembly()
+space = LagrangeFESpace(mesh, p=1)
+GD=space.geo_dimension()
+
+
+phi=space.basis
+print("phi",phi)
 #载荷向量
-bform3=LinearForm(space_inner)
+bform3=LinearForm(space)
 bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
-F_inner=bform3.assembly()
+F=bform3.assembly()
+print(F)
 
-
-####包壳的矩阵组装####
-# 基函数
-space_caldding = LagrangeFESpace(mesh_caldding, p=1)
-GD=space_caldding.geo_dimension()
 #组装刚度矩阵
-bform = BilinearForm(space_caldding)
-bform.add_domain_integrator(DiffusionIntegrator(q=3))
-K_caldding = bform.assembly()
-#组装质量矩阵
-bform2=BilinearForm(space_caldding)
-bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
-M_caldding=bform2.assembly()
-#载荷向量
-bform3=LinearForm(space_caldding)
-bform3.add_domain_integrator(ScalarSourceIntegrator(source,q=3))
-F_caldding=bform3.assembly()
-
-
-
-p=np.zeros_like(F)
-p+=300
 alpha_caldding=0.4
 alpha_inner=0.8
-p_caldding = np.zeros_like(F_caldding)
-p_inner=np.zeros_like(F_inner)
-print("初始化的包壳温度形状:",p_caldding.shape)
-print("初始化燃料的温度形状：",p_inner.shape)
+alpha=np.zeros_like(F)
+alpha[canidx]+=alpha_caldding
+alpha[innidx]+=alpha_inner
+print(alpha)
+bform = BilinearForm(space)
+bform.add_domain_integrator(DiffusionIntegrator(q=3))
+K= bform.assembly()
+
+#组装质量矩阵
+bform2=BilinearForm(space)
+bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
+M=bform2.assembly()
+print(M)
+
+
+p_0=np.zeros_like(F)
+p_0+=300
+alpha_caldding=0.4
+alpha_inner=0.8
+
 
 import os
-output = './result_fuelrod3d'
+output = './result_fuelrod_cnidx3d'
 filename = 'temp'
 # Check if the directory exists, if not, create it
 if not os.path.exists(output):
     os.makedirs(output)
 
 for n in range(nt):
-    t = duration[0] + n*tau
-    A_caldding = M_caldding + alpha_caldding*K_caldding*tau
-    b_caldding = M_caldding @ p_caldding + tau*F_caldding
-    p_caldding=spsolve(A_caldding,b_caldding)
-
-    #index_caldding = np.where((node_caldding[:, None] == BdNode).all(axis=2))[1]
-    #index_inner = np.where((node_inner[:, None] == BdNode).all(axis=2))[1]
-    #p_inner[index_inner] = p_caldding[index_caldding]
-
-    A_inner = M_inner + alpha_inner*K_inner*tau
-    b_inner = M_inner @ p_inner + tau*F_inner
-    p_inner=spsolve(A_inner,b_inner)
-   
-     
-    p_caldding[isBdNode_caldding] = pde.dirichlet(node_caldding)
-    
-    #global_indices_caldding = np.where(np.all(node[:, None] == node_caldding, axis=2))[0]
-    #global_indices_inner = np.where(np.all(node[:, None] == node_inner, axis=2))[0] ####这一步目前有问题。
-    #print("caldding:",global_indices_caldding.shape)
-    #print("inner:",global_indices_inner.shape)
-    # 假设 node, node_caldding, node_inner 是预先定义好的且形状分别为 (N, D), (M_caldding, D), (M_inner, D)，其中D是维度
-
-    # 使用 broadcasting 和 tolerance 进行近似匹配，这里假设容差为1e-8，根据实际情况调整
-    """""
-    tolerance = 1e-8
-    mask_caldding = np.isclose(node[:, None, :], node_caldding[None, :, :], atol=tolerance).all(axis=-1)
-    mask_inner = np.isclose(node[:, None, :], node_inner[None, :, :], atol=tolerance).all(axis=-1)
-
-    # 找到匹配的索引
-    global_indices_caldding = np.where(mask_caldding.any(axis=1))[0]
-    global_indices_inner = np.where(mask_inner.any(axis=1))[0]
-
-    # 确保匹配的索引数量与预期相符，可选的验证步骤
-    assert global_indices_caldding.size == node_caldding.shape[0], "数量不匹配: caldding"
-    assert global_indices_inner.size == node_inner.shape[0], "数量不匹配: inner"
-
-    # 将 p_caldding 中的值填入 p 中对应的位置
-    p[global_indices_caldding] = p_caldding
-    # 将 p_inner 中的值填入 p 中对应的位置
-    p[global_indices_inner] = p_inner
     """
+    if n == 0:
+        p_0 = p_0[:]
+    else:
+        p_0 = p_1[:]
+    """
+    t = duration[0] + n*tau
+    print("M",M)
+    print("K",K)
+    A= M+alpha_caldding*K*tau
+    print("A",A)
+    print("p_0",p_0)
+    b = M@p_0 + tau*F
+    print("b",b)
+    bc = DirichletBC(space = space, gD = pde.dirichlet) 
+    A,b = bc.apply(A,b)
+
+    p_0[cnidx] = pde.dirichlet(node[cnidx])
+    #p_0=spsolve(A,b)
+    x0 = np.zeros_like(b)  # 初始猜测向量，通常是零向量
+    tolerance = 1e-16  # 解的容差
+    maxiter = 1000  # 最大迭代次数
+
+    # 调用 gmres
+    p_0, exitCode = gmres(A, b, x0=x0, tol=tolerance, maxiter=maxiter)
     
-  
-    mesh.nodedata['temp'] = p.flatten('F')
+    mesh.nodedata['temp'] = p_0.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
     mesh.to_vtk(fname=name)
 
-print(p)
-print(p.shape)
+print(p_0)
+print(p_0.shape)

@@ -147,6 +147,7 @@ pde = FuelRodDomainData2d()
 mu = pde.mu
 lambda_ = pde.lam
 domain = pde.domain()
+
 mm = 1e-03
 #包壳厚度
 w = 0.15 * mm
@@ -158,6 +159,7 @@ R2 = 1.0 * mm
 L = 0.575 * mm
 #内部单元大小
 h = 0.0003
+
 mesh = TriangleMesh.from_fuel_rod_gmsh(R1,R2,L,w,h,meshtype='normal')
 
 space = Space(mesh, p=p,doforder=doforder)

@@ -14,6 +14,7 @@ from fealpy.mesh import TetrahedronMesh
 import matplotlib.pyplot as plt
 import numpy as np
 from fealpy.fem.dirichlet_bc import DirichletBC
+from scipy.sparse.linalg import gmres
 
 def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented'):
     """
@@ -212,7 +213,7 @@ def from_fuel_rod_gmsh(R1,R2,L,w,h,l,p,meshtype='segmented'):
     gmsh.finalize()
     return TetrahedronMesh(node,cell),cnidx,bdnidx,innidx,canidx
 
-mm = 1e-3
+mm = 1
 #包壳厚度
 w = 0.15 * mm
 #半圆半径
@@ -267,7 +268,7 @@ class ParabolicData:
         @param[in] p 一个表示空间点坐标的数组
         @return 返回位移值，这里返回常数向量 [0.0, 0.0,0.0]
         """
-        return 500
+        return  500
 
 
 
@@ -279,6 +280,10 @@ print(len(canidx))
 pde=ParabolicData()
 source=pde.source()
 node = mesh.node
+NC=mesh.number_of_cells
+NN=mesh.number_of_nodes
+print("单元个数：",NC)
+print("节点个数",NN)
 print("反转单元个数:",np.sum(mesh.entity_measure("cell")<=0))
 
 def show_quality(self, axes, qtype=None, quality=None):
@@ -311,7 +316,7 @@ print(isBdNode.shape)
 
 # 时间离散
 duration = pde.duration()
-nt = 6
+nt = 64
 tau = (duration[1] - duration[0])/nt 
 
 ####全局矩阵组装####
@@ -322,8 +327,8 @@ space=LagrangeFESpace(mesh, p=1)
 # 基函数
 space = LagrangeFESpace(mesh, p=1)
 GD=space.geo_dimension()
-dof=space.dof
-print(dof)
+
+
 phi=space.basis
 print("phi",phi)
 #载荷向量
@@ -340,7 +345,7 @@ alpha[canidx]+=alpha_caldding
 alpha[innidx]+=alpha_inner
 print(alpha)
 bform = BilinearForm(space)
-bform.add_domain_integrator(DiffusionIntegrator(q=3),alpha)
+bform.add_domain_integrator(DiffusionIntegrator(q=3))
 K= bform.assembly()
 
 #组装质量矩阵
@@ -355,19 +360,21 @@ p_0+=300
 alpha_caldding=0.4
 alpha_inner=0.8
 
-""""
+
 import os
-output = './result_fuelrod_testtest3d'
+output = './result_fuelrod_cnidx3d'
 filename = 'temp'
 # Check if the directory exists, if not, create it
 if not os.path.exists(output):
     os.makedirs(output)
 
 for n in range(nt):
+    """
     if n == 0:
-        p_0 = p_0
+        p_0 = p_0[:]
     else:
         p_0 = p_1[:]
+    """
     t = duration[0] + n*tau
     print("M",M)
     print("K",K)
@@ -376,15 +383,20 @@ for n in range(nt):
     print("p_0",p_0)
     b = M@p_0 + tau*F
     print("b",b)
-    #bc = DirichletBC(space = space, gD = pde.dirichlet) 
-    #A,b = bc.apply(A,b)
-    p_0[bdnidx] = pde.dirichlet(node[bdnidx])
-    p_1=spsolve(A,b)
+    bc = DirichletBC(space = space, gD = pde.dirichlet) 
+    A,b = bc.apply(A,b)
+    p_0[cnidx] = pde.dirichlet(node[cnidx])
+    #p_0=spsolve(A,b)
+    x0 = np.zeros_like(b)  # 初始猜测向量，通常是零向量
+    tolerance = 1e-16  # 解的容差
+    maxiter = 1000  # 最大迭代次数
+
+    # 调用 gmres
+    p_0, exitCode = gmres(A, b, x0=x0, rtol=tolerance, maxiter=maxiter)
     
-    mesh.nodedata['temp'] = p_1.flatten('F')
+    mesh.nodedata['temp'] = p_0.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
     mesh.to_vtk(fname=name)
 
-print(p_1)
-print(p_1.shape)
-"""
+print(p_0)
+print(p_0.shape)
