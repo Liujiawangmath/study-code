@@ -335,7 +335,7 @@ NC=mesh.number_of_cells()
 
 # 时间离散
 duration = pde.duration()
-nt = 64
+nt = 640
 tau = (duration[1] - duration[0])/nt 
 
 ####全局矩阵组装####
@@ -403,14 +403,14 @@ for n in range(nt):
         print("p_0:",p)
         A,b = bc.apply(A,b)
         #p[bdnidx] = pde.dirichlet(node[bdnidx])
-        p=spsolve(A,b)
-    """
+        #p=spsolve(A,b)
+    
     x0 = np.zeros_like(b)  # 初始猜测向量，通常是零向量
     tolerance = 1e-16  # 解的容差
     maxiter = 1000  # 最大迭代次数
     # 调用 gmres
-    p_0, exitCode = gmres(A, b, x0=x0, rtol=tolerance, maxiter=maxiter)
-    """
+    p, exitCode = gmres(A, b, x0=x0, rtol=tolerance, maxiter=maxiter)
+    
     mesh.nodedata['temp'] = p.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
     mesh.to_vtk(fname=name)

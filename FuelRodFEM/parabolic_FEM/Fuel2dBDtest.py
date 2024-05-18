@@ -255,6 +255,7 @@ class ParabolicData:
 pde=ParabolicData()
 source=pde.source()
 node = mesh.node
+NN=mesh.number_of_nodes()
 NC=mesh.number_of_cells()
 isBdNode= mesh.ds.boundary_node_flag()
 print(isBdNode.shape)
@@ -305,7 +306,9 @@ for n in range(nt):
         A=A
         b=b
     else:
-        bc = DirichletBC(space = space, gD = pde.dirichlet) 
+        isbdnidx= np.full(NN, False, dtype=bool)
+        isbdnidx[bdnidx]=True
+        bc = DirichletBC(space = space, gD = pde.dirichlet, threshold=isbdnidx) 
         A,b = bc.apply(A,b)
         #p[isBdNode] = pde.dirichlet(node[isBdNode])
     # Dirichlet边界条件

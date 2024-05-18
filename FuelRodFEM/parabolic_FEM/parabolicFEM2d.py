@@ -9,6 +9,7 @@ from fealpy.fem import BilinearForm
 from fealpy.fem import ScalarMassIntegrator
 from fealpy.fem import LinearForm
 from fealpy.fem import ScalarSourceIntegrator
+from fealpy.fem.dirichlet_bc import DirichletBC
 class ParabolicData:
     
     
@@ -108,9 +109,11 @@ for n in range(nt):
     t = duration[0] + n*tau
     A = M + alpha*K*tau
     b = M @ p + tau*F
+    bc = DirichletBC(space = space, gD = pde.dirichlet) 
+    A,b = bc.apply(A,b)
     p=spsolve(A,b)
     # Dirichlet边界条件
-    p[isBdNode] = pde.dirichlet(node)
+    
     mesh.nodedata['temp'] = p.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
     mesh.to_vtk(fname=name)
