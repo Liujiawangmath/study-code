@@ -2,7 +2,7 @@ import argparse
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import argparse
+
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import spdiags
 
@@ -51,7 +51,7 @@ class BoxDomainData2d():
         return mesh 
 
     def triangle_mesh(self):
-        mesh = TriangleMesh.from_box(box=[0, 1, 0, 1], nx=100, ny=100)
+        mesh = TriangleMesh.from_box(box=[0, 1, 0, 1], nx=50, ny=50)
 
         return mesh
 
@@ -114,9 +114,9 @@ class BoxDomainData2d():
 
     
 parser = argparse.ArgumentParser(description=
-    """
-    单纯形网格（三角形、四面体）网格上任意次有限元方法
-    """)
+        """
+        单纯形网格（三角形、四面体）网格上任意次有限元方法
+        """)
 
 parser.add_argument('--degree',
         default=2, type=int,
@@ -127,8 +127,8 @@ parser.add_argument('--GD',
         help='模型问题的维数, 默认求解 2 维问题.')
 
 parser.add_argument('--nrefine',
-        default=2, type=int,
-        help='初始网格加密的次数, 默认初始加密 2 次.')
+        default=0, type=int,
+        help='初始网格加密的次数, 默认初始加密 0 次.')
 
 parser.add_argument('--scale',
         default=1, type=float,
@@ -151,64 +151,89 @@ lambda_ = pde.lam
 domain = pde.domain()
 mesh = pde.triangle_mesh()
 
-space = Space(mesh, p=p, doforder=doforder)
-uh = space.function(dim=GD)
-vspace = GD*(space, )
-gdof = vspace[0].number_of_global_dofs()
-vgdof = gdof * GD
-ldof = vspace[0].number_of_local_dofs()
-vldof = ldof * GD
+errors = []
+hs = []
 
-integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+1)
-bform = BilinearForm(vspace)
-bform.add_domain_integrator(integrator1)
-KK = integrator1.assembly_cell_matrix(space=vspace)
-bform.assembly()
-K = bform.get_matrix()
+for n in range(1, 2):
+    mesh = pde.init_mesh(n)
+    space = Space(mesh, p=p, doforder=doforder)
+    uh = space.function(dim=GD)
+    vspace = GD*(space, )
+    gdof = vspace[0].number_of_global_dofs()
+    vgdof = gdof * GD
+    ldof = vspace[0].number_of_local_dofs()
+    vldof = ldof * GD
 
-integrator2 = VectorMassIntegrator(c=1, q=5)
-bform2 = BilinearForm(vspace)
-bform2.add_domain_integrator(integrator2)
-MK = integrator2.assembly_cell_matrix(space=vspace)
-bform2.assembly()
-M = bform2.get_matrix()
+    integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+1)
+    bform = BilinearForm(vspace)
+    bform.add_domain_integrator(integrator1)
+    KK = integrator1.assembly_cell_matrix(space=vspace)
+    bform.assembly()
+    K = bform.get_matrix()
 
-integrator3 = VectorSourceIntegrator(f = pde.source, q=5)
-lform = LinearForm(vspace)
-lform.add_domain_integrator(integrator3)
-FK = integrator3.assembly_cell_vector(space = vspace)
-lform.assembly()
-F = lform.get_vector()
+    integrator2 = VectorMassIntegrator(c=1, q=5)
+    bform2 = BilinearForm(vspace)
+    bform2.add_domain_integrator(integrator2)
+    MK = integrator2.assembly_cell_matrix(space=vspace)
+    bform2.assembly()
+    M = bform2.get_matrix()
 
-ipoints = space.interpolation_points()
-fh = pde.source(p=ipoints)
-fh_1 = np.zeros(M.shape[0])
-fh_1[::GD] = fh[:,0]
-fh_1[1::GD] = fh[:,1]
-Fh = M @ fh_1
+    integrator3 = VectorSourceIntegrator(f = pde.source, q=5)
+    lform = LinearForm(vspace)
+    lform.add_domain_integrator(integrator3)
+    FK = integrator3.assembly_cell_vector(space = vspace)
+    lform.assembly()
+    F = lform.get_vector()
 
-if hasattr(pde, 'dirichlet'):
-    # dflag.shape = (gdof, GD)
-    dflag = vspace[0].boundary_interpolate(gD=pde.dirichlet, uh=uh,
-                                        threshold=pde.is_dirichlet_boundary)
-    Fh -= K@uh.flat
+    ipoints = space.interpolation_points()
+    fh = pde.source(p=ipoints)
+    fh_1 = np.zeros(M.shape[0])
+    fh_1[::GD] = fh[:,0]
+    fh_1[1::GD] = fh[:,1]
+    Fh = M @ fh_1
 
-    bdIdx = np.zeros(K.shape[0], dtype=np.int_)
-    bdIdx[dflag.flat] = 1
-    D0 = spdiags(1-bdIdx, 0, K.shape[0], K.shape[0])
-    D1 = spdiags(bdIdx, 0, K.shape[0], K.shape[0])
-    K = D0@K@D0 + D1
+    if hasattr(pde, 'dirichlet'):
+        dflag = vspace[0].boundary_interpolate(gD=pde.dirichlet, uh=uh,
+                                               threshold=pde.is_dirichlet_boundary)
+        Fh -= K@uh.flat
 
-    Fh[dflag.flat] = uh.ravel()[dflag.flat]
-    #bc = DirichletBC(space=vspace, gD=pde.dirichlet, threshold=pde.is_dirichlet_boundary)
-    #K, Fh = bc.apply(K, Fh, uh)
+        bdIdx = np.zeros(K.shape[0], dtype=np.int_)
+        bdIdx[dflag.flat] = 1
+        D0 = spdiags(1-bdIdx, 0, K.shape[0], K.shape[0])
+        D1 = spdiags(bdIdx, 0, K.shape[0], K.shape[0])
+        K = D0@K@D0 + D1
+
+        Fh[dflag.flat] = uh.ravel()[dflag.flat]
+
+    uh.flat[:] = spsolve(K, Fh)
+    def compute_error(mesh, space, uh, pde):
+            u_exact = space.interpolate(pde.solution)
+            error = np.sqrt(np.sum((uh - u_exact)**2))
+            return error
+    error = compute_error(mesh, space, uh, pde)
+    errors.append(error)
+    hs.append(mesh.entity_measure('cell').mean())
+    
+    print(f"Refinement level {n}, Error: {error}")
+
+# 绘制误差图
+plt.figure()
+plt.loglog(hs, errors, '-o', label='Error')
+plt.xlabel('Mesh size (h)')
+plt.ylabel('Error')
+plt.title('Error vs Mesh size')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# 计算收敛阶数
+orders = -np.diff(np.log(errors)) / np.diff(np.log(hs))
+print(f"Orders of convergence: {orders}")
 
 uh.flat[:] = spsolve(K, Fh)
 print("uh:\n", uh.shape, uh)
 
-
-
-output = './mesh_linear/'
+output = './mesh/'
 if not os.path.exists(output):
     os.makedirs(output)
 fname = os.path.join(output, 'linear_elastic.vtu')
@@ -217,5 +242,7 @@ mesh.nodedata['u'] = uh[:, 0]
 mesh.nodedata['v'] = uh[:, 1]
 mesh.to_vtk(fname=fname)
 
+
 u_exact = space.interpolate(pde.solution)
 print("u_exact:", u_exact.shape, "\n", u_exact)
+

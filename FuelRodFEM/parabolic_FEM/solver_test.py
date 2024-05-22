@@ -6,11 +6,12 @@ from fealpy.functionspace import LagrangeFESpace
 from fealpy.fem import DiffusionIntegrator, BilinearForm, ScalarMassIntegrator, LinearForm, ScalarSourceIntegrator
 from fealpy.fem.dirichlet_bc import DirichletBC
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class Parabolic2dData:
     def domain(self):
-        return [0, 10, 0, 10]
+        return [0, 1, 0, 1]
 
     def duration(self):
         return [0, 0.1]
@@ -21,6 +22,13 @@ class Parabolic2dData:
         x = p[..., 0]
         y = p[..., 1]
         return np.sin(pi*x)*np.sin(pi*y)*np.exp(-2*pi*t) 
+    
+    def init_solution(self, p):
+        pi = np.pi
+        x = p[..., 0]
+        y = p[..., 1]
+        return np.sin(pi*x)*np.sin(pi*y)
+        
     
     def source(self, p, t):
         """
@@ -48,8 +56,11 @@ class Parabolic3dData:
     def duration(self):
         return [0, 1]
 
-    def source(self):
-        return 0
+    def source(self,p,t):
+        x = p[..., 0]
+        y = p[..., 1]
+        z = p[..., 2]
+        return np.zeros_like(x)
 
     def solution(self, p, t):
         pi = np.pi
@@ -57,8 +68,16 @@ class Parabolic3dData:
         y = p[..., 1]
         z = p[..., 2]
         return np.sin(pi * x) * np.sin(pi * y) * np.sin(pi * z) * np.exp(-3 * pi * t)
+    
+    def init_solution(self, p):
+        pi = np.pi
+        x = p[..., 0]
+        y = p[..., 1]
+        z = p[..., 2]
+        return np.sin(pi*x)*np.sin(pi*y)*np.sin(pi * z) 
 
     def dirichlet(self, p, t):
+        
         return self.solution(p, t)
     
 class FuelRod3dData:
@@ -68,7 +87,20 @@ class FuelRod3dData:
     def duration(self):
         return [0, 1]
 
-    def source(self):
+    def source(self,p,t):
+        return 0
+
+    def dirichlet(self, p, t):
+        return np.array([500])
+    
+class FuelRod2dData:
+    def domain(self):
+        return [0, 1, 0, 1]
+
+    def duration(self):
+        return [0, 1]
+
+    def source(self,p,t):
         return 0
 
     def dirichlet(self, p, t):
@@ -124,13 +156,16 @@ class HeatEquationSolver:
 
 
     def solve(self):
+        self.p = self.space.function()
+        self.p += self.p0  
         for n in range(self.nt):
             t = self.duration[0] + n * self.tau
-    
             bform3 = LinearForm(self.space)
             # 这里应该传入后的得到的为qc
-            f=self.pde.source(node,t)
-            bform3.add_domain_integrator(ScalarSourceIntegrator(f, q=3))
+            #f=self.pde.source(node,t)
+            source=lambda p: self.pde.source(p, t)
+            print(source)
+            bform3.add_domain_integrator(ScalarSourceIntegrator(source, q=3))
             self.F = bform3.assembly()
             
             # 组装刚度矩阵
@@ -154,29 +189,29 @@ class HeatEquationSolver:
             bform2 = BilinearForm(self.space)
             bform2.add_domain_integrator(ScalarMassIntegrator(q=3))
             self.M = bform2.assembly()
-
-            self.p = np.zeros_like(self.F)
-            self.p += self.p0           
             A = self.M + self.alpha_caldding * self.K * self.tau
             b = self.M @ self.p + self.tau * self.F
             if n == 0:
                 A = A
                 b = b
             else:
-                bc = DirichletBC(space=self.space, gD=self.pde.dirichlet(self.p,t), threshold=self.threshold)
+                gD=lambda x : self.pde.dirichlet(x,t)
+                ipoints = self.space.interpolation_points()
+                gD=gD(ipoints[self.threshold])
+                bc = DirichletBC(space=self.space, gD=gD.reshape(-1,1), threshold=self.threshold)
                 A, b = bc.apply(A, b)
-            self.p = spsolve(A, b)
+                self.p = spsolve(A, b)
             print(self.p)
             self.mesh.nodedata['temp'] = self.p.flatten('F')
             name = os.path.join(self.output, f'{self.filename}_{n:010}.vtu')
             self.mesh.to_vtk(fname=name)
-        print(self.p)
+        print('self.p',self.p)
         print(self.p.shape)
         
     def plot_exact_solution(self):
         t = self.duration[1]
         exact_solution = self.pde.solution(self.mesh.node, t)
-        print(exact_solution)
+        print('exact_solution',exact_solution)
 
         if self.GD == 2:
             plt.figure(figsize=(8, 6))
@@ -204,7 +239,7 @@ class HeatEquationSolver:
         exact_solution = self.pde.solution(self.mesh.node, t)
         numerical_solution = self.p.flatten('F')
         error = np.abs(exact_solution - numerical_solution)
-        print(error)
+        print('error',error)
 
         if self.GD == 2:
             plt.figure(figsize=(8, 6))
@@ -226,6 +261,81 @@ class HeatEquationSolver:
             ax.set_zlabel('z')
             plt.tight_layout()
             plt.show()
+        
+    def plot_exact_solution_heatmap(self):
+        t = self.duration[1]
+        exact_solution = self.pde.solution(self.mesh.node, t)
+        print('exact_solution', exact_solution)
+
+        if self.GD == 2:
+            # 假设网格是规则的
+            x = self.mesh.node[:, 0]
+            y = self.mesh.node[:, 1]
+            z = exact_solution
+            
+            plt.figure(figsize=(8, 6))
+            plt.tricontourf(x, y, z, levels=100, cmap='viridis')
+            plt.colorbar()
+            plt.title('Exact Solution Heatmap')
+            plt.xlabel('x')
+            plt.ylabel('y')
+            plt.tight_layout()
+            plt.show()
+        
+
+
+    def plot_error_heatmap(self):
+        t = self.duration[1]
+        exact_solution = self.pde.solution(self.mesh.node, t)
+        numerical_solution = self.p.flatten('F')
+        error = np.abs(exact_solution - numerical_solution)
+        print('error', error)
+
+        if self.GD == 2:
+            # 假设网格是规则的
+            x = self.mesh.node[:, 0]
+            y = self.mesh.node[:, 1]
+            z = error
+
+            plt.figure(figsize=(8, 6))
+            plt.tricontourf(x, y, z, levels=100, cmap='viridis')
+            plt.colorbar()
+            plt.title('Error Heatmap')
+            plt.xlabel('x')
+            plt.ylabel('y')
+            plt.tight_layout()
+            plt.show()
+        
+
+
+"""
+# 使用示例:三维的燃料棒slover
+if __name__ == "__main__":
+    mm = 1e-03
+    #包壳厚度
+    w = 0.15 * mm
+    #半圆半径
+    R1 = 0.5 * mm
+    #四分之一圆半径
+    R2 = 1.0 * mm
+    #连接处直线段
+    L = 0.575 * mm
+    #内部单元大小
+    h = 0.5 * mm
+    #棒长
+    l = 20 * mm
+    #螺距
+    p = 40 * mm
+
+from app.FuelRodSim.fuel_rod_mesher import FuelRodMesher 
+mesher = FuelRodMesher(R1,R2,L,w,h,meshtype='segmented',modeltype='2D')
+mesh = mesher.get_mesh
+ficdx,cacidx = mesher.get_2D_fcidx_cacidx()
+cnidx,bdnidx = mesher.get_2D_cnidx_bdnidx()
+pde = FuelRod3dData()
+FuelRodsolver = HeatEquationSolver(mesh, pde,640, bdnidx,300,ficdx=ficdx,cacidx=cacidx,output='./result_fuelrod2Dtest')
+FuelRodsolver.solve()
+"""
 
 """
 # 使用示例:三维的燃料棒slover
@@ -267,22 +377,27 @@ mesh = TetrahedronMesh.from_box([0, 1, 0, 1, 0, 1],nx,ny,nz)
 node = mesh.node
 isBdNode = mesh.ds.boundary_node_flag()
 pde = FuelRod3dData()
-Boxslover = HeatEquationSolver(mesh,pde,64,isBdNode,300,alpha_caldding=0.08,layered=False,output='./rusult_boxtest')
+Boxslover = HeatEquationSolver(mesh,pde,120,isBdNode,300,alpha_caldding=0.08,layered=False,output='./rusult_boxtest')
 Boxslover.solve()
 """
 
-
+"""
 # 二维带真解的测试案例
 pde=Parabolic2dData()
-nx = 5
-ny = 5
+nx = 20
+ny = 20
 mesh = TriangleMesh.from_box([0, 1, 0, 1], nx,ny)
 node = mesh.node
+print(node.shape)
 isBdNode = mesh.ds.boundary_node_flag()
-Box2dslover = HeatEquationSolver(mesh,pde,160,isBdNode,0,alpha_caldding=1,layered=False,output='./rusult_box2dtest')
+p0=pde.init_solution(node) #准备一个初值
+Box2dslover = HeatEquationSolver(mesh,pde,160,isBdNode,p0=p0,alpha_caldding=1,layered=False,output='./rusult_box2dtesttest')
 Box2dslover.solve()
 Box2dslover.plot_exact_solution() # 绘制真解
 Box2dslover.plot_error()
+Box2dslover.plot_exact_solution_heatmap() # 绘制真解
+Box2dslover.plot_error_heatmap()
+"""
 
 
 """
@@ -294,8 +409,10 @@ nz = 5
 mesh = TetrahedronMesh.from_box([0, 1, 0, 1, 0, 1], nx, ny, nz)
 node = mesh.node
 isBdNode = mesh.ds.boundary_node_flag()
-Box3DSolver = HeatEquationSolver(mesh, pde, 160, isBdNode, 0, alpha_caldding=1, layered=False, output='./result_box3dtest')
+p0=pde.init_solution(node) #准备一个初值
+Box3DSolver = HeatEquationSolver(mesh, pde, 160, isBdNode, p0=p0, alpha_caldding=1, layered=False, output='./result_box3dtest')
 Box3DSolver.solve()
 Box3DSolver.plot_exact_solution()
 Box3DSolver.plot_error()
 """
+

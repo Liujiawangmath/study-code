@@ -403,14 +403,14 @@ for n in range(nt):
         print("p_0:",p)
         A,b = bc.apply(A,b)
         #p[bdnidx] = pde.dirichlet(node[bdnidx])
-        #p=spsolve(A,b)
-    
+        p=spsolve(A,b)
+    """
     x0 = np.zeros_like(b)  # 初始猜测向量，通常是零向量
     tolerance = 1e-16  # 解的容差
     maxiter = 1000  # 最大迭代次数
     # 调用 gmres
     p, exitCode = gmres(A, b, x0=x0, rtol=tolerance, maxiter=maxiter)
-    
+    """
     mesh.nodedata['temp'] = p.flatten('F')
     name = os.path.join(output, f'{filename}_{n:010}.vtu')
     mesh.to_vtk(fname=name)
