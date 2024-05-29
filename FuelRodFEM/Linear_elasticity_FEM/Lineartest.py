@@ -98,15 +98,17 @@ parser.add_argument('--scale', default=1, type=float, help='网格变形系数�
 parser.add_argument('--doforder', default='vdims', type=str, help='自由度排序的约定，默认为 vdims')
 args = parser.parse_args()
 
-p = args.degree
-GD = args.GD
-n = args.nrefine
-scale = args.scale
-doforder = args.doforder
-
 pde = BoxDomainData2d()
 mu = pde.mu
 lambda_ = pde.lam
+
+n = 1
+mesh = pde.init_mesh(n=n)
+# mesh = pde.triangle_mesh()
+
+p = 1
+GD = 2
+doforder = 'vdims'
 
 maxit = 5
 errorType = ['$|| uh - u ||_{l_2}$',
@@ -164,7 +166,6 @@ for i in range(maxit):
         F[dflag.flat] = uh.ravel()[dflag.flat]
 
     uh.flat[:] = spsolve(K, F)
-    area = mesh.entity_measure()
     u_exact = space.interpolate(pde.solution)
 
     # area = mesh.entity_measure(etype='cell')
@@ -177,15 +178,6 @@ for i in range(maxit):
 
 print("errorMatrix:\n", errorMatrix)
 print("ratio:\n", np.log(errorMatrix[:, 0:-1]/errorMatrix[:, 1:])/np.log(2))
-
-output = './mesh_linear/'
-if not os.path.exists(output):
-    os.makedirs(output)
-fname = os.path.join(output, 'linear_elastic.vtu')
-
-mesh.nodedata['u'] = uh[:, 0]
-mesh.nodedata['v'] = uh[:, 1]
-mesh.to_vtk(fname=fname)
 
 from fealpy.tools.show import showmultirate
 import matplotlib.pyplot as plt

@@ -14,7 +14,7 @@ class Parabolic2dData:
         return [0, 1, 0, 1]
 
     def duration(self):
-        return [0, 0.1]
+        return [0, 5]
     
     
     def solution(self,p,t):
@@ -137,6 +137,7 @@ class HeatEquationSolver:
         self.alpha_inner = alpha_inner
         self.initialize_output_directory()
         self.threshold = self.create_threshold()
+        self.errors = []  # 用于存储每个时间步的误差
 
     def initialize_output_directory(self):
         if not os.path.exists(self.output):
@@ -202,12 +203,26 @@ class HeatEquationSolver:
                 A, b = bc.apply(A, b)
                 self.p = spsolve(A, b)
             print(self.p)
+            # 计算误差并记录
+            exact_solution = self.pde.solution(self.mesh.node, t)
+            error = np.linalg.norm(exact_solution - self.p.flatten('F'))
+            self.errors.append(error)
             self.mesh.nodedata['temp'] = self.p.flatten('F')
             name = os.path.join(self.output, f'{self.filename}_{n:010}.vtu')
             self.mesh.to_vtk(fname=name)
         print('self.p',self.p)
         print(self.p.shape)
         
+    def plot_error_over_time(self):
+        plt.figure(figsize=(10, 6))
+        plt.plot(np.linspace(self.duration[0], self.duration[1], self.nt), self.errors, marker='o', linestyle='-')
+        plt.title('Error over Time')
+        plt.xlabel('Time')
+        plt.ylabel('L2 Norm of Error')
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
     def plot_exact_solution(self):
         t = self.duration[1]
         exact_solution = self.pde.solution(self.mesh.node, t)
@@ -377,11 +392,10 @@ mesh = TetrahedronMesh.from_box([0, 1, 0, 1, 0, 1],nx,ny,nz)
 node = mesh.node
 isBdNode = mesh.ds.boundary_node_flag()
 pde = FuelRod3dData()
-Boxslover = HeatEquationSolver(mesh,pde,120,isBdNode,300,alpha_caldding=0.08,layered=False,output='./rusult_boxtest')
-Boxslover.solve()
+Boxsolver = HeatEquationSolver(mesh,pde,120,isBdNode,300,alpha_caldding=0.08,layered=False,output='./rusult_boxtest')
+Boxsolver.solve()
 """
 
-"""
 # 二维带真解的测试案例
 pde=Parabolic2dData()
 nx = 20
@@ -391,13 +405,13 @@ node = mesh.node
 print(node.shape)
 isBdNode = mesh.ds.boundary_node_flag()
 p0=pde.init_solution(node) #准备一个初值
-Box2dslover = HeatEquationSolver(mesh,pde,160,isBdNode,p0=p0,alpha_caldding=1,layered=False,output='./rusult_box2dtesttest')
-Box2dslover.solve()
-Box2dslover.plot_exact_solution() # 绘制真解
-Box2dslover.plot_error()
-Box2dslover.plot_exact_solution_heatmap() # 绘制真解
-Box2dslover.plot_error_heatmap()
-"""
+Box2dsolver = HeatEquationSolver(mesh,pde,160,isBdNode,p0=p0,alpha_caldding=1,layered=False,output='./rusult_box2dtesttest_to')
+Box2dsolver.solve()
+Box2dsolver.plot_exact_solution() # 绘制真解
+Box2dsolver.plot_error()
+Box2dsolver.plot_exact_solution_heatmap() # 绘制真解
+Box2dsolver.plot_error_heatmap()
+Box2dsolver.plot_error_over_time() 
 
 
 """
