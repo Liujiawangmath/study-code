@@ -1,21 +1,25 @@
 import argparse
-import os
-import matplotlib.pyplot as plt
 import numpy as np
-import argparse
+import matplotlib.pyplot as plt
 from scipy.sparse.linalg import spsolve
-from scipy.sparse import spdiags
+from mpl_toolkits.mplot3d import Axes3D
 
+from fealpy.pde.linear_elasticity_model import BoxDomainData2d, BoxDomainData3d
+from fealpy.mesh import TriangleMesh, TetrahedronMesh
 from fealpy.functionspace import LagrangeFESpace as Space
 
 from fealpy.fem import LinearElasticityOperatorIntegrator
 from fealpy.fem import VectorSourceIntegrator
-from fealpy.fem import VectorMassIntegrator
 from fealpy.fem import BilinearForm
 from fealpy.fem import LinearForm
+from fealpy.fem import DirichletBC
+from fealpy.fem import VectorNeumannBCIntegrator #TODO
+from fealpy.fem import VectorMassIntegrator
 from fealpy.decorator import cartesian
-from fealpy.mesh import TriangleMesh,TetrahedronMesh
 from fealpy.geometry.domain_2d import RectangleDomain
+
+
+from timeit import default_timer as timer
 
 class BoxDomainData2d():
     """
@@ -131,7 +135,6 @@ class BoxDomainData3d():
         return [0.0, self.L, 0.0, self.W, 0.0, self.W]
 
     def init_mesh(self, n=1):
-        from fealpy.mesh import MeshFactory as MF 
         i = 2**n
         domain = self.domain()
         mesh = TetrahedronMesh(domain, nx=5*i, ny=1*i, nz=1*i)
@@ -165,15 +168,17 @@ class BoxDomainData3d():
         flag = np.abs(y - 0.2) < 1e-13
         return flag
 
-    
+
+
+## 参数解析
 parser = argparse.ArgumentParser(description=
-    """
-    单纯形网格（三角形、四面体）网格上任意次有限元方法
-    """)
+        """
+        单纯形网格（三角形、四面体）网格上任意次有限元方法
+        """)
 
 parser.add_argument('--degree',
-        default=2, type=int,
-        help='Lagrange 有限元空间的次数, 默认为 2 次.')
+        default=1, type=int,
+        help='Lagrange 有限元空间的次数, 默认为 1 次.')
 
 parser.add_argument('--GD',
         default=2, type=int,
@@ -188,8 +193,8 @@ parser.add_argument('--scale',
         help='网格变形系数，默认为 1')
 
 parser.add_argument('--doforder',
-        default='vdims', type=str,
-        help='自由度排序的约定，默认为 vdims')
+        default='sdofs', type=str,
+        help='自由度排序的约定，默认为 sdofs')
 
 args = parser.parse_args()
 p = args.degree
@@ -197,78 +202,41 @@ GD = args.GD
 n = args.nrefine
 scale = args.scale
 doforder = args.doforder
+GD = 3
+if GD == 2:
+    pde = BoxDomainData2d()
+    mesh = pde.init_mesh(n=n)
+elif GD == 3:
+    pde = BoxDomainData3d()
+    mesh = TetrahedronMesh.from_box()
 
-pde = BoxDomainData2d()
-mu = pde.mu
-lambda_ = pde.lam
 domain = pde.domain()
-mesh = pde.triangle_mesh()
+NN = mesh.number_of_nodes()
 
+# 新接口程序
+# 构建双线性型，表示问题的微分形式
 space = Space(mesh, p=p, doforder=doforder)
 uh = space.function(dim=GD)
-vspace = GD*(space, )
-gdof = vspace[0].number_of_global_dofs()
-vgdof = gdof * GD
-ldof = vspace[0].number_of_local_dofs()
-vldof = ldof * GD
-
-integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+1)
+vspace = GD*(space, ) # 把标量空间张成向量空间
 bform = BilinearForm(vspace)
-bform.add_domain_integrator(integrator1)
-KK = integrator1.assembly_cell_matrix(space=vspace)
+bform.add_domain_integrator(LinearElasticityOperatorIntegrator(pde.lam, pde.mu))
 bform.assembly()
-K = bform.get_matrix()
 
-integrator2 = VectorMassIntegrator(c=1, q=5)
-bform2 = BilinearForm(vspace)
-bform2.add_domain_integrator(integrator2)
-MK = integrator2.assembly_cell_matrix(space=vspace)
-bform2.assembly()
-M = bform2.get_matrix()
-
-integrator3 = VectorSourceIntegrator(f = pde.source, q=5)
+# 构建单线性型，表示问题的源项
 lform = LinearForm(vspace)
-lform.add_domain_integrator(integrator3)
-FK = integrator3.assembly_cell_vector(space = vspace)
+lform.add_domain_integrator(VectorSourceIntegrator(pde.source, q=1))
+if hasattr(pde, 'neumann'):
+    bi = VectorNeumannBCIntegrator(pde.neumann, threshold=pde.is_neumann_boundary, q=1)
+    lform.add_boundary_integrator(bi)
 lform.assembly()
+
+A = bform.get_matrix()
 F = lform.get_vector()
 
-ipoints = space.interpolation_points()
-fh = pde.source(p=ipoints)
-fh_1 = np.zeros(M.shape[0])
-fh_1[::GD] = fh[:,0]
-fh_1[1::GD] = fh[:,1]
-Fh = M @ fh_1
-
 if hasattr(pde, 'dirichlet'):
-    # dflag.shape = (gdof, GD)
-    dflag = vspace[0].boundary_interpolate(gD=pde.dirichlet, uh=uh,
-                                        threshold=pde.is_dirichlet_boundary)
-    Fh -= K@uh.flat
+    bc = DirichletBC(vspace, pde.dirichlet, threshold=pde.is_dirichlet_boundary)
+    A, F = bc.apply(A, F, uh)
 
-    bdIdx = np.zeros(K.shape[0], dtype=np.int_)
-    bdIdx[dflag.flat] = 1
-    D0 = spdiags(1-bdIdx, 0, K.shape[0], K.shape[0])
-    D1 = spdiags(bdIdx, 0, K.shape[0], K.shape[0])
-    K = D0@K@D0 + D1
-
-    Fh[dflag.flat] = uh.ravel()[dflag.flat]
-    #bc = DirichletBC(space=vspace, gD=pde.dirichlet, threshold=pde.is_dirichlet_boundary)
-    #K, Fh = bc.apply(K, Fh, uh)
-
-uh.flat[:] = spsolve(K, Fh)
-print("uh:\n", uh.shape, uh)
-
-
-
-output = './mesh_linear/'
-if not os.path.exists(output):
-    os.makedirs(output)
-fname = os.path.join(output, 'linear_elastic.vtu')
-
-mesh.nodedata['u'] = uh[:, 0]
-mesh.nodedata['v'] = uh[:, 1]
-mesh.to_vtk(fname=fname)
-
-u_exact = space.interpolate(pde.solution)
-print("u_exact:", u_exact.shape, "\n", u_exact)
+uh.flat[:] = spsolve(A, F)
+mesh.nodedata['uh'] = uh
+mesh.to_vtk(fname='linear_lfem.vtu')

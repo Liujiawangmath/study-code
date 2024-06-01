@@ -7,78 +7,82 @@ from fealpy.fem import DiffusionIntegrator, BilinearForm, ScalarMassIntegrator, 
 from fealpy.fem.dirichlet_bc import DirichletBC
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from sympy import *
 
 
-class Parabolic2dData:
+
+class Parabolic2dData: 
+    def __init__(self,u, x, y, t, D=[0, 1, 0, 1], T=[0, 1]):
+        self._domain = D 
+        self._duration = T 
+        self.u = lambdify([x,y,t], sympify(u))
+        self.f = lambdify([x,y,t],diff(u,t,1)-diff(u,x,2)-diff(u,y,2))
+        
     def domain(self):
-        return [0, 1, 0, 1]
+        return self._domain
 
     def duration(self):
-        return [0, 5]
-    
-    
-    def solution(self,p,t):
-        pi = np.pi
+        return self._duration 
+
+    def solution(self, p, t):
         x = p[..., 0]
         y = p[..., 1]
-        return np.sin(pi*x)*np.sin(pi*y)*np.exp(-2*pi*t) 
-    
+        return self.u(x,y,t) 
+
     def init_solution(self, p):
-        pi = np.pi
         x = p[..., 0]
         y = p[..., 1]
-        return np.sin(pi*x)*np.sin(pi*y)
+        return self.u(x,y,self._duration[0])
         
-    
     def source(self, p, t):
-        """
-        @brief 方程右端项 
-
-        @param[in] p numpy.ndarray, 空间点
-        @param[in] t float, 时间点 
-
-        @return 方程右端函数值
-        """
-        pi = np.pi
         x = p[..., 0]
         y = p[..., 1]
-        return np.zeros(x.shape)
-
-     
-    def dirichlet(self, p,t):
-        
-        return self.solution(p,t)
+        return self.f(x,y,t)
     
+    def gradient(self, p, t):
+        x = p[..., 0]
+        y = p[..., 1]
+        pass
+       # return self.dudx(p,t)
+    
+    def dirichlet(self, p, t):
+        return self.solution(p, t)
+
 class Parabolic3dData:
+    def __init__(self,u, x, y, z, t, D=[0, 1, 0, 1, 0, 1], T=[0, 1]):
+        self._domain = D 
+        self._duration = T 
+        self.u = lambdify([x,y,z,t], sympify(u))
+        self.f = lambdify([x,y,z,t],diff(u,t,1)-diff(u,x,2)-diff(u,y,2)-diff(u,z,2))
+    
     def domain(self):
-        return [0, 1, 0, 1, 0, 1]
+        return self._domain
 
     def duration(self):
-        return [0, 1]
+        return self._duration
 
     def source(self,p,t):
         x = p[..., 0]
         y = p[..., 1]
         z = p[..., 2]
-        return np.zeros_like(x)
+        return self.f(x,y,z,t)
 
     def solution(self, p, t):
-        pi = np.pi
         x = p[..., 0]
         y = p[..., 1]
         z = p[..., 2]
-        return np.sin(pi * x) * np.sin(pi * y) * np.sin(pi * z) * np.exp(-3 * pi * t)
+        return self.u(x,y,z,t) 
     
     def init_solution(self, p):
-        pi = np.pi
         x = p[..., 0]
         y = p[..., 1]
         z = p[..., 2]
-        return np.sin(pi*x)*np.sin(pi*y)*np.sin(pi * z) 
+        return self.u(x,y,z,self._duration[0])
 
     def dirichlet(self, p, t):
         
         return self.solution(p, t)
+
     
 class FuelRod3dData:
     def domain(self):
@@ -397,7 +401,7 @@ Boxsolver.solve()
 """
 
 # 二维带真解的测试案例
-pde=Parabolic2dData()
+pde=Parabolic2dData('exp(-2*pi**2*t)*sin(pi*x)*sin(pi*y)','x','y','t')
 nx = 20
 ny = 20
 mesh = TriangleMesh.from_box([0, 1, 0, 1], nx,ny)
@@ -405,7 +409,7 @@ node = mesh.node
 print(node.shape)
 isBdNode = mesh.ds.boundary_node_flag()
 p0=pde.init_solution(node) #准备一个初值
-Box2dsolver = HeatEquationSolver(mesh,pde,160,isBdNode,p0=p0,alpha_caldding=1,layered=False,output='./rusult_box2dtesttest_to')
+Box2dsolver = HeatEquationSolver(mesh,pde,320,isBdNode,p0=p0,alpha_caldding=1,layered=False,output='./rusult_box2dtesttest_to')
 Box2dsolver.solve()
 Box2dsolver.plot_exact_solution() # 绘制真解
 Box2dsolver.plot_error()
@@ -413,10 +417,9 @@ Box2dsolver.plot_exact_solution_heatmap() # 绘制真解
 Box2dsolver.plot_error_heatmap()
 Box2dsolver.plot_error_over_time() 
 
-
 """
 # 三维带真解的测试
-pde=Parabolic3dData()
+pde=Parabolic3dData('sin(pi*x)*sin(pi*y)*sin(pi*z)*exp(-3*pi*t)','x','y','z','t')
 nx = 5
 ny = 5
 nz = 5
@@ -428,5 +431,7 @@ Box3DSolver = HeatEquationSolver(mesh, pde, 160, isBdNode, p0=p0, alpha_caldding
 Box3DSolver.solve()
 Box3DSolver.plot_exact_solution()
 Box3DSolver.plot_error()
+Box3DSolver.plot_error_over_time()
 """
+
 
