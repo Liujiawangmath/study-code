@@ -21,7 +21,7 @@ class BoxDomainData2d:
     @brief 混合边界条件的线弹性问题模型
     @note 本模型假设在二维方形区域 [0,1] x [0,1] 内的线性弹性问题
     """
-    def __init__(self, E=1.0, nu =0.3):
+    def __init__(self, E=1, nu =0.3):
         """
         @brief 构造函数
         @param[in] E 弹性模量，默认值为 1.0
@@ -110,7 +110,7 @@ p = 1
 GD = 2
 doforder = 'vdims'
 
-maxit = 5
+maxit = 3
 errorType = ['$|| uh - u ||_{l_2}$',
              '$|| uh - u ||_{l_\infty}$']
 errorMatrix = np.zeros((2, maxit), dtype=np.float64)
@@ -178,7 +178,7 @@ for i in range(maxit):
 
 print("errorMatrix:\n", errorMatrix)
 print("ratio:\n", np.log(errorMatrix[:, 0:-1]/errorMatrix[:, 1:])/np.log(2))
-
+"""
 from fealpy.tools.show import showmultirate
 import matplotlib.pyplot as plt
 
@@ -187,3 +187,4 @@ plt.xlabel('NDof')
 plt.ylabel('error')
 plt.tight_layout()
 plt.show()
+"""
