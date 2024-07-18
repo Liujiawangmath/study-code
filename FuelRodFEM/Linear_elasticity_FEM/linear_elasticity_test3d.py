@@ -13,7 +13,7 @@ from fealpy.decorator import cartesian
 from fealpy.mesh import  TetrahedronMesh
 from fealpy.geometry.domain_2d import RectangleDomain
 from scipy.sparse import spdiags
-
+from fealpy.fem import ScalarLaplaceIntegrator
 class BoxDomainData3d():
     def __init__(self, E=2.5, nu=0.25):
         self.E = E
@@ -25,7 +25,7 @@ class BoxDomainData3d():
         return [0.0, 1, 0.0, 1, 0.0, 1]
 
     def init_mesh(self, n):
-        mesh = TetrahedronMesh.from_box(box=[0, 1, 0, 1, 0, 1], nx=5, ny=5, nz=5)
+        mesh = TetrahedronMesh.from_box(box=[0, 1, 0, 1, 0, 1], nx=1, ny=1, nz=1)
         mesh.uniform_refine(n)
         return mesh
 
@@ -117,7 +117,7 @@ output = './mesh_linear/'
 if not os.path.exists(output):
     os.makedirs(output)
 
-for n in range(3):
+for n in range(1):
     mesh = pde.init_mesh(n=n)
     space = Space(mesh, p=p, doforder=doforder)
     uh = space.function(dim=GD)
@@ -127,12 +127,13 @@ for n in range(3):
     ldof = vspace[0].number_of_local_dofs()
     vldof = ldof * GD
 
-    integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+6)
+    integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+2)
     bform = BilinearForm(vspace)
     bform.add_domain_integrator(integrator1)
     KK = integrator1.assembly_cell_matrix(space=vspace)
     bform.assembly()
     K = bform.get_matrix()
+    print(KK)
 
     integrator3 = VectorSourceIntegrator(f=pde.source, q=p+6)
     lform = LinearForm(vspace)
@@ -156,13 +157,27 @@ for n in range(3):
         F[dflag.flat] = uh.ravel()[dflag.flat]
 
     uh.flat[:] = spsolve(K, F)
-
     residual = F - K @ uh.flat
-    residual_max = np.max(abs(residual))
-    print(f'n={n}, 残差：{residual_max}')
-    
-    u_exact = space.interpolate(pde.solution)
-    error = mesh.error(uh, u_exact)
-    print(f'n={n}, 误差：{error}')
+    # 计算 L2 相对范数残量
+    residual_L2 = np.linalg.norm(residual, ord=2)
+    F_L2 = np.linalg.norm(F, ord=2)
+    residual_L2_rel = residual_L2 / F_L2
+    print('相对 L2 范数残差：', residual_L2_rel)
+    # 测试刚度矩阵
+    u_exact = space.function(dim=GD)
+    u_exact[:] = space.interpolate(pde.solution)
+    u_exact_flat = u_exact.flatten()
+
+    # 插值逼近误差计算
+    F_exact = space.function(dim=GD)
+    F_exact[:] = space.interpolate(pde.source)
+    F_exact_flat = F_exact.flatten()
+
+    # 计算 K @ u_exact 和 F_apm 的误差
+    F_apm = K @ u_exact_flat
+    error_F = np.linalg.norm(F_apm - F_exact_flat,ord=2)
+    print(f'n={n}, 逼近误差：{error_F}')
+
+    #print(f'n={n}, 误差：{error}')
     
     fname = os

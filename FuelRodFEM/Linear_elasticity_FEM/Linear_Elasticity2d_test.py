@@ -16,13 +16,14 @@ from fealpy.decorator import cartesian
 from fealpy.mesh import TriangleMesh,TetrahedronMesh
 from fealpy.geometry.domain_2d import RectangleDomain
 from scipy.sparse import spdiags
+from sympy import symbols, lambdify, diff, Matrix, pprint, Rational
 
-class BoxDomainData2d:
+class BoxDomainData2d():
     """
     @brief 混合边界条件的线弹性问题模型
     @note 本模型假设在二维方形区域 [0,1] x [0,1] 内的线性弹性问题
     """
-    def __init__(self, E=1, nu =0.3):
+    def __init__(self, E=1.0, nu =0.3):
         """
         @brief 构造函数
         @param[in] E 弹性模量，默认值为 1.0
@@ -37,7 +38,7 @@ class BoxDomainData2d:
     def domain(self):
         return [0,1,0,1]
         
-    def init_mesh(self, n):
+    def init_mesh(self, n = 1):
         """
         @brief 初始化网格
         @param[in] n 网格加密的次数，默认值为 1
@@ -50,18 +51,24 @@ class BoxDomainData2d:
 
         return mesh 
 
-    def triangle_mesh(self,n):
-        mesh = TriangleMesh.from_box(box=[0, 1, 0, 1], nx=5, ny=5)
-        mesh.uniform_refine(n)
+    def triangle_mesh(self):
+        mesh = TriangleMesh.from_box(box=[0, 1, 0, 1], nx=100, ny=100)
+
         return mesh
 
     @cartesian
     def source(self, p):
+        """
+        @brief 返回给定点的源项值 f
+        @param[in] p 一个表示空间点坐标的数组
+        @return 返回源项值
+        """
         x = p[..., 0]
         y = p[..., 1]
         val = np.zeros(p.shape, dtype=np.float64)
         val[..., 0] = 35/13*y - 35/13*y**2 + 10/13*x - 10/13*x**2
         val[..., 1] = -25/26*(-1+2*y) * (-1+2*x)
+
         return val
 
     @cartesian
@@ -71,15 +78,28 @@ class BoxDomainData2d:
         val = np.zeros(p.shape, dtype=np.float64)
         val[..., 0] = x*(1-x)*y*(1-y)
         val[..., 1] = 0
+
         return val
 
     @cartesian
     def dirichlet(self, p):
+        """
+        @brief 返回 Dirichlet 边界上的给定点的位移
+        @param[in] p 一个表示空间点坐标的数组
+        @return 返回位移值，这里返回常数向量 [0.0, 0.0]
+        """
         val = np.zeros((p.shape[0], 2), dtype=np.float64)
+        # val = np.array([0.0, 0.0], dtype=np.float64)
+
         return val
 
     @cartesian
     def is_dirichlet_boundary(self, p):
+        """
+        @brief 判断给定点是否在 Dirichlet 边界上
+        @param[in] p 一个表示空间点坐标的数组
+        @return 如果在 Dirichlet 边界上，返回 True，否则返回 False
+        """
         x = p[..., 0]
         y = p[..., 1]
         flag1 = np.abs(x) < 1e-13
@@ -89,6 +109,7 @@ class BoxDomainData2d:
         flag4 = np.abs(y - 1) < 1e-13
         flagy = np.logical_or(flag3, flag4)
         flag = np.logical_or(flagx, flagy)
+
         return flag
 
 parser = argparse.ArgumentParser(description="单纯形网格（三角形、四面体）网格上任意次有限元方法")
@@ -108,7 +129,7 @@ pde = BoxDomainData2d()
 mu = pde.mu
 lambda_ = pde.lam
 
-mesh = pde.triangle_mesh(n=3)
+mesh = pde.triangle_mesh()
 space = Space(mesh, p=p, doforder=doforder)
 uh = space.function(dim=GD)
 vspace = GD * (space, )
@@ -117,21 +138,21 @@ vgdof = gdof * GD
 ldof = vspace[0].number_of_local_dofs()
 vldof = ldof * GD
 
-integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+6)
+integrator1 = LinearElasticityOperatorIntegrator(lam=lambda_, mu=mu, q=p+1)
 bform = BilinearForm(vspace)
 bform.add_domain_integrator(integrator1)
-KK = integrator1.assembly_cell_matrix(space=vspace)
+KK = integrator1.assembly_cell_matrix_fast(space=vspace)
 bform.assembly()
 K = bform.get_matrix()
 
-integrator2 = VectorMassIntegrator(c=1, q=p+6)
+integrator2 = VectorMassIntegrator(c=1, q=p+1)
 bform2 = BilinearForm(vspace)
 bform2.add_domain_integrator(integrator2)
 MK = integrator2.assembly_cell_matrix(space=vspace)
 bform2.assembly()
 M = bform2.get_matrix()
 
-integrator3 = VectorSourceIntegrator(f=pde.source, q=p+6)
+integrator3 = VectorSourceIntegrator(f=pde.source, q=p+1)
 lform = LinearForm(vspace)
 lform.add_domain_integrator(integrator3)
 FK = integrator3.assembly_cell_vector(space=vspace)
